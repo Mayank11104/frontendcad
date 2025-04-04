@@ -3,6 +3,12 @@ import "./App.css";
 import shapeToUrl from "./shapeToUrl";
 import initOpenCascade from "opencascade.js";
 import "@google/model-viewer";
+import * as BABYLON from "@babylonjs/core";
+import { GridMaterial } from "@babylonjs/materials";
+
+import "@babylonjs/loaders";
+import "@babylonjs/materials"; // for GridMaterial
+
 import Navbar from "./components/navbar";
 import RightSidebar from "./components/rightsidebar";
 
@@ -10,10 +16,9 @@ function App() {
   const [modelUrl, setModelUrl] = useState(null);
   const ocRef = useRef(null);
   const modelRef = useRef(null);
+  const babylonCanvasRef = useRef(null);
   const [prompt, setPrompt] = useState("");
- 
 
-  /** ✅ Load and display a STEP file */
   const loadSTEPFile = useCallback(async (filePath, color = [1, 1, 1]) => {
     const oc = ocRef.current;
     if (!oc) {
@@ -39,7 +44,6 @@ function App() {
         throw new Error("No valid shape found");
       }
 
-      // ✅ Pass color to shapeToUrl
       const url = await shapeToUrl(oc, shape, color);
       setModelUrl(url);
       oc.FS.unlink("/model.step");
@@ -48,28 +52,72 @@ function App() {
     }
   }, []);
 
-  /** ✅ Handle input commands */
-  const handleSend = () => {
-    if (prompt.trim().toLowerCase() === "load step file") {
-      loadSTEPFile("/Cross Helical Gear ZH1-10 Assy.STEP", [0.9, 0.5, 0.1]); // Custom color
-    }
-    setPrompt(""); // Clear input
-  };
-
-  /** ✅ Initialize OpenCascade */
   useEffect(() => {
     initOpenCascade().then((oc) => {
       ocRef.current = oc;
     });
   }, []);
 
+  useEffect(() => {
+    const canvas = babylonCanvasRef.current;
+    if (!canvas) return;
+
+    const engine = new BABYLON.Engine(canvas, true);
+    const scene = new BABYLON.Scene(engine);
+    scene.clearColor = new BABYLON.Color4(0, 0, 0, 0); // transparent
+
+    const camera = new BABYLON.ArcRotateCamera(
+      "Camera",
+      Math.PI / 2,     // azimuth
+      Math.PI / 2,     // polar (looking straight at vertical plane)
+      30,
+      new BABYLON.Vector3(0, 0, 0),
+      scene
+    );
+    camera.attachControl(canvas, true);
+    camera.lowerRadiusLimit = 10;
+    camera.upperRadiusLimit = 100;
+
+    new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+
+    const gridMaterial = new GridMaterial("gridMaterial", scene);
+    gridMaterial.gridRatio = 1;
+    gridMaterial.majorUnitFrequency = 5;
+    gridMaterial.minorUnitVisibility = 0.3;
+    gridMaterial.mainColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+    gridMaterial.lineColor = new BABYLON.Color3(0.6, 0.6, 0.6);
+    gridMaterial.opacity = 0.7;
+    gridMaterial.backFaceCulling = false;
+
+    const verticalGrid = BABYLON.MeshBuilder.CreatePlane("verticalGrid", {
+      width: 100,
+      height: 100,
+    }, scene);
+    verticalGrid.material = gridMaterial;
+    verticalGrid.position.z = -5; // Push it behind the model
+    verticalGrid.rotation.y = 0;  // facing forward
+
+    engine.runRenderLoop(() => {
+      scene.render();
+    });
+
+    window.addEventListener("resize", () => engine.resize());
+    return () => engine.dispose();
+  }, []);
+
+  const handleSend = () => {
+    if (prompt.trim().toLowerCase() === "load step file") {
+      loadSTEPFile("/Cross Helical Gear ZH1-10 Assy.STEP",);
+    }
+    setPrompt("");
+  };
+
   return (
     <div className="App">
       <Navbar />
-      {/* ✅ Pass setIsSidebarOpen to RightSidebar */}
       <RightSidebar />
 
-      {/* Input Box for Commands */}
+      {/* Prompt Input Box */}
       <div className="prompt-input-container">
         <textarea
           className="prompt-input"
@@ -83,7 +131,7 @@ function App() {
         </button>
       </div>
 
-      {/* ✅ Centered 3D Model Viewer Section */}
+      {/* Main 3D Viewer with Grid */}
       <div
         style={{
           width: "1200px",
@@ -95,11 +143,22 @@ function App() {
           alignItems: "center",
           overflow: "auto",
           position: "relative",
-          transition: "transform 0.3s ease-in-out", // ✅ Smooth animation
-           // ✅ Shift left when sidebar opens
         }}
       >
-        {/* ✅ Main 3D Model Viewer */}
+        {/* Babylon Canvas */}
+        <canvas
+          ref={babylonCanvasRef}
+          style={{
+            width: "100%",
+            height: "100%",
+            position: "absolute",
+            top: 0,
+            left: 0,
+            zIndex: 0,
+          }}
+        ></canvas>
+
+        {/* Model Viewer */}
         <model-viewer
           ref={modelRef}
           src={modelUrl}
@@ -114,6 +173,8 @@ function App() {
             width: "100%",
             height: "100%",
             display: "block",
+            position: "relative",
+            zIndex: 1,
           }}
         />
       </div>
